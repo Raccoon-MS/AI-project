@@ -1,42 +1,51 @@
 import numpy as np
 import random as rnd
 import math
+import time
+
+def sigmoid(x):
+        return 1 / (1 + math.exp(-x))
+
+def derivativeSigmoid(x):
+    sig = sigmoid(x)
+    return sig * (1 - sig)
 
 class Neuron():
-    def __init__(self, layer, id, numberOfWeights):
+    def __init__(self, layer, id):
         self.id = id
         self.layer = layer
-        if numberOfWeights == 0:
-            self.weights = [1]
-        else:
-            self.weights = []
-            for i in range(0, numberOfWeights):
-                self.weights.append(rnd.uniform(-0.01,0.01))
-
-        self.bias = rnd.random()
-        self.output = (0,0)
+        self.weight = rnd.uniform(-0.01,0.01)
+        self.bias = 0 #rnd.random()
+        self.output = 0
 
     def think(self, inputs):
         self.output = 0
         value = 0
         for i in inputs:
-            v, w = i
-            value += w[self.id]*v
-        self.output = (self.sigmoid(self.bias + value), self.weights)
+            value += i
+        self.output = sigmoid((self.weight * value) + self.bias)
+
+    def backpropagation(self, error):
+         delta = error * derivativeSigmoid(self.output)
+         #print(delta)
+         self.weight += delta * self.output
             
-    def sigmoid(self, x):
-        return 1 / (1 + math.exp(-x))
+    
 
 class NeuronLayer():
-    def __init__(self, id, numberOfNeurons, nextLayerSize):
+    def __init__(self, id, numberOfNeurons):
         self.id = id
         self.neurons = []
         for i in range(0, numberOfNeurons):
-            self.neurons.append(Neuron(id, i, nextLayerSize))
+            self.neurons.append(Neuron(id, i))
     
     def think(self, inputs):
         for n in self.neurons:
             n.think(inputs)
+
+    def backpropagation(self, error):
+        for n in self.neurons:
+            n.backpropagation(error)
 
     def getOutputs(self):
         outputs = []
@@ -48,10 +57,7 @@ class NeuralNetwork():
     def __init__(self, params):
         self.layers = []
         for i in range(0, len(params)):
-            nextLayerSize = 0
-            if i < len(params) - 1:
-                nextLayerSize = params[i+1]
-            self.layers.append(NeuronLayer(i, params[i], nextLayerSize))
+            self.layers.append(NeuronLayer(i, params[i]))
 
     def think(self, inputs):
         self.layers[0].think(inputs)
@@ -60,20 +66,50 @@ class NeuralNetwork():
         return self.layers[len(self.layers)-1].getOutputs()
         
 
-    def train(self, initial_inputs, required_outputs, trainning_limit):
-        for i in range(0, trainning_limit):
-            self.think(initial_inputs)
+    def train(self, im, trainning_limit):
+        inputs = im.getInputs()
+        correct_outputs = im.getResults()
+        #print(inputs)
+        for iteration in range(0, trainning_limit):
+            outputs = []
+            for i in inputs:
+                self.think(i)
+                outputs.append(self.getOutput())
+            #print(outputs)
+            errorSum = 0
+            for i in range(0, len(outputs)):
+                difference = correct_outputs[i] - outputs[i]
+                errorSum += difference * difference
 
-        pass
+            error = errorSum * 0.5
+            self.backpropagation(error)
+            print("e{} = {}".format(iteration, error))
 
-class InputConverter():
+    def backpropagation(self, error):
+        i = 0
+        for l in self.layers:
+            if i == 0:
+                i += 1
+                continue
+            l.backpropagation(error)
+            i+=1
+
+    def getOutput(self):
+        return self.layers[-1].neurons[0].output
+
+    #errueur neurone = pod * err
+
+class InputManager():
     def __init__(self, file):
         self.file = file
         self.data = []
+        self.inputs = []
+        self.results = []
         self.normalAlphabet = []
         self.codedAlphabet = {}
+        self.len = 0
 
-    def convert(self):
+    def process(self):
         lines = open(self.file, "r")
         self.createAlphabet(lines)
         lines.close()
@@ -81,63 +117,82 @@ class InputConverter():
         lines = open(self.file, "r")
         self.translateAll(lines)
         lines.close()
-        return self.data
 
     def createAlphabet(self, lines):
         for l in lines:
             if l.endswith("\n"):
                 l = l[:-1]
-            words = l.split(" ")
-            words = words[:-1]
-            for w in words:
+            l = l[:-2]
+
+            #Calcul au passage de la plus grande longueur de phrase
+            if len(l) > self.len:
+                self.len = len(l)
+
+            for w in l:
                 if not w in self.normalAlphabet:
                     self.normalAlphabet.append(w)
     
     def codeAlphabet(self):
-        maxi = len(self.normalAlphabet) + 1
-        index = 0
+        maxi = self.getMaxASCII()
         for w in self.normalAlphabet:
-            code = index / maxi
+            code = ord(w) / maxi
             self.codedAlphabet[w] = code
-            index += 1
+
+    def getMaxASCII(self):
+        maxi = 0
+        for c in self.normalAlphabet:
+            code = ord(c)
+            if code > maxi:
+                maxi = code
+        return maxi
 
     def translateAll(self, lines):
         for l in lines:
             if l.endswith("\n"):
                 l = l[:-1]
 
-            words = l.split(" ")
-
-            result = int(words[-1])
-            words = words[:-1]
+            result = int(l[-1])
+            l = l[:-2]
             
             sentence = []
-            for w in words:
+            for w in l:
                 sentence.append(self.translateWord(w))
+
             self.data.append((sentence, result))
+            self.inputs.append(sentence)
+            self.results.append(result)
             
     def translateWord(self, word):
         return self.codedAlphabet[word]
 
-    def maxSentenceLength(self):
-        maxi = 0
-        for d in self.datas:
-            s, r = d
-            if len(s) > maxi:
-                maxi = len(s)
-        return maxi 
+    def getMaxLength(self):
+        return self.len
+
+    def getInputs(self):
+        return self.inputs
+
+    def getResults(self):
+        return self.results
 
 
 if __name__ == "__main__":
-    datas = InputConverter("dataset.csv").convert()
-    inputLayerSize = datas.maxSentenceLength()
-    
-    archi = [inputLayerSize, 15, 1]
+    im = InputManager("dataset.csv")
+    im.process()
+    inputLayerSize = im.getMaxLength()
+    print(inputLayerSize)
+    archi = [10, 12, 1]
     network = NeuralNetwork(archi)
-    result = network.think([(1,[1,1]), (1,[1,1])])
-    for r in result:
-        v, w = r
-        print(v)"""
+
+    trainingStartTime = time.time()
+
+    network.train(im, 1500)
+
+    trainingEndTime = time.time()
+
+    print("Training completed in: {} s".format(trainingEndTime - trainingStartTime))
+
+    print(network.getOutput())
+
     
             
 
