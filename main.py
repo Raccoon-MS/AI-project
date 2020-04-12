@@ -1,4 +1,3 @@
-import numpy as np
 import random as rnd
 import math
 import time
@@ -11,41 +10,69 @@ def derivativeSigmoid(x):
     return sig * (1 - sig)
 
 class Neuron():
-    def __init__(self, layer, id):
+    def __init__(self, layer, nbOfInputs, lastLayer=False):
         self.id = id
         self.layer = layer
-        self.weight = rnd.uniform(-0.01,0.01)
+        self.error = 0
+
+        if layer == 0:
+            self.weights = []
+            for i in range(nbOfInputs):
+                self.weights.append(1)
+        else:
+            self.weights = []
+            for i in range(nbOfInputs):
+                self.weights.append(rnd.uniform(-0.01,0.01))    
         self.bias = 0 #rnd.random()
         self.output = 0
+        self.lastLayer = lastLayer
+        self.inputs = []
 
     def think(self, inputs):
         self.output = 0
+        self.inputs = inputs
         value = 0
-        for i in inputs:
-            value += i
-        self.output = sigmoid((self.weight * value) + self.bias)
+        for i in range(len(inputs)):
+            value += inputs[i] * self.weights[i]
+        self.output = sigmoid(value + self.bias)
 
-    def backpropagation(self, error):
-         delta = error * derivativeSigmoid(self.output)
-         #print(delta)
-         self.weight += delta * self.output
-            
-    
+    def setError(self, error):
+        self.error=error * ( 0.1 * self.output * (1 - self.output))
+
+    def backpropagation(self):
+        taux = 2
+        coefficient = 0.1
+        if self.lastLayer:
+            for i in range(len(self.inputs)):
+                self.weights[i] = taux * self.error * (coefficient * self.output * (1 - self.output)) * self.inputs[i]
+        else:
+            for i in range(len(self.inputs)):
+                self.weights[i]= taux * self.error * self.inputs[i]
+
 
 class NeuronLayer():
-    def __init__(self, id, numberOfNeurons):
+    def __init__(self, id, numberOfNeurons, previousLayerSize, lastLayer=False):
         self.id = id
         self.neurons = []
+        self.error = 0
+
         for i in range(0, numberOfNeurons):
-            self.neurons.append(Neuron(id, i))
+            self.neurons.append(Neuron(id, previousLayerSize, lastLayer))
     
     def think(self, inputs):
         for n in self.neurons:
             n.think(inputs)
 
-    def backpropagation(self, error):
+    def processError(self, nextLayer):
+        self.error = 0
+        for i in range(len(self.neurons) - 1):
+            for n in nextLayer.neurons:
+                error = n.weights[i] * n.output
+            self.neurons[i].setError(error)
+
+    def backpropagation(self):
         for n in self.neurons:
-            n.backpropagation(error)
+            n.backpropagation()
 
     def getOutputs(self):
         outputs = []
@@ -54,10 +81,16 @@ class NeuronLayer():
         return outputs
     
 class NeuralNetwork():
-    def __init__(self, params):
+    def __init__(self, params, inputSize):
         self.layers = []
         for i in range(0, len(params)):
-            self.layers.append(NeuronLayer(i, params[i]))
+            if i == 0:
+                self.layers.append(NeuronLayer(i, params[i], inputSize))
+            elif i == len(params) - 1:
+                self.layers.append(NeuronLayer(i, params[i], params[i-1], True))
+            else:
+                self.layers.append(NeuronLayer(i, params[i], params[i-1]))
+
 
     def think(self, inputs):
         self.layers[0].think(inputs)
@@ -72,9 +105,19 @@ class NeuralNetwork():
         #print(inputs)
         for iteration in range(0, trainning_limit):
             outputs = []
-            for i in inputs:
-                self.think(i)
+            for i in range(len(inputs)):
+                self.think(inputs[i])
                 outputs.append(self.getOutput())
+
+                localError = correct_outputs[i] - self.getOutput()
+                #print(localError)
+                self.layers[-1].neurons[0].error = localError
+                self.layers[-1].error = localError
+
+                for layerId in range(len(self.layers) - 1):
+                    self.layers[len(self.layers) - (layerId + 1)].processError(self.layers[len(self.layers) - (layerId + 2)])
+
+                self.backpropagation()
             #print(outputs)
             errorSum = 0
             for i in range(0, len(outputs)):
@@ -82,17 +125,13 @@ class NeuralNetwork():
                 errorSum += difference * difference
 
             error = errorSum * 0.5
-            self.backpropagation(error)
+
+
             print("e{} = {}".format(iteration, error))
 
-    def backpropagation(self, error):
-        i = 0
-        for l in self.layers:
-            if i == 0:
-                i += 1
-                continue
-            l.backpropagation(error)
-            i+=1
+    def backpropagation(self):
+        for li in range(0, len(self.layers)):
+            self.layers[li].backpropagation()
 
     def getOutput(self):
         return self.layers[-1].neurons[0].output
@@ -180,8 +219,8 @@ if __name__ == "__main__":
     im.process()
     inputLayerSize = im.getMaxLength()
     print(inputLayerSize)
-    archi = [10, 12, 1]
-    network = NeuralNetwork(archi)
+    archi = [10, 10, 1]
+    network = NeuralNetwork(archi, inputLayerSize)
 
     trainingStartTime = time.time()
 
